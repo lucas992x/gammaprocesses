@@ -1,7 +1,8 @@
 import argparse, sys, os.path, random
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.optimize import minimize, fsolve
+from scipy import stats
+from scipy.optimize import curve_fit, minimize, fsolve
 from scipy.special import gamma, digamma
 
 # Examples
@@ -11,7 +12,7 @@ from scipy.special import gamma, digamma
 # Notes and TODOs:
 # Raises "RuntimeWarning: invalid value encountered in double_scalars" multiple times
 # Has problems with b greater than 2 (correlated to the previous problem?)
-# Add the possibility to pass a critical value, see time to reach it and try to get its distribution
+# Should use better file names for graphs
 
 # compute mean, variance and two percentiles of obtained values (default 2.5% and 97.5%)
 class Stats:
@@ -121,26 +122,39 @@ def SolveMaxLike(t, x, values):
         u = c * (t[-1] ** b0) / x[-1]
         return c, u
 
-# try to solve for multiple initial guesses of b
+# function that will be fitted to get an initial guess for exponent value
+def expon(t, a, b):
+    return a * (t ** b)
+
+# solve using method of maximum likelihood
+# first try to get an initial guess for b by fitting the previous function
+# if this doesn't work, use the initial guesses passed as argument
 # each value can lead to local minimimum, so they are compared to find the actual minimum
 def TrySolveSingle(t, x, bguesses):
-    solutions = []
-    for b0 in bguesses:
-        c0, u0 = SolveMoments(t, x, b0)  # get initial guesses for c and u that satisfy constrains
-        b, c, u = SolveMaxLike(t, x, [b0, c0, u0])
-        if b > 0:
-            solutions.append([b, c, u])
-    if solutions == []:
-        sys.exit('Error: no solutions found for {}!'.format(x))
-    delta = [x[j] - x[j - 1] for j in range(1, len(x))]
-    minimum = sys.float_info.max
-    minsol = 3 * [minimum]
-    for solution in solutions:
-        llvalue = loglike(solution, t, delta)
-        if llvalue < minimum:
-            minimum = llvalue
-            minsol = solution
-    return minsol  # [b, c, u]
+    params = curve_fit(expon, t, x)
+    b0 = params[0][1]
+    c0, u0 = SolveMoments(t, x, b0)  # get initial guesses for c and u that satisfy constrains
+    b, c, u = SolveMaxLike(t, x, [b0, c0, u0])
+    if b > 0 and c > 0 and u > 0:
+        return b, c, u
+    else:
+        solutions = []
+        for b0 in bguesses:
+            c0, u0 = SolveMoments(t, x, b0)  # get initial guesses for c and u that satisfy constrains
+            b, c, u = SolveMaxLike(t, x, [b0, c0, u0])
+            if b > 0:
+                solutions.append([b, c, u])
+        if solutions == []:
+            sys.exit('Error: no solutions found for {}!'.format(x))
+        delta = [x[j] - x[j - 1] for j in range(1, len(x))]
+        minimum = sys.float_info.max
+        minsol = 3 * [minimum]
+        for solution in solutions:
+            llvalue = loglike(solution, t, delta)
+            if llvalue < minimum:
+                minimum = llvalue
+                minsol = solution
+        return minsol  # [b, c, u]
 
 # try to solve with method of maximum likelihood
 def TrySolve(t, xx, bguesses, percentile):
@@ -150,10 +164,11 @@ def TrySolve(t, xx, bguesses, percentile):
     a = []
     for x in xx:
         sol = TrySolveSingle(t, x, bguesses)
-        b.append(sol[0])
-        c.append(sol[1])
-        u.append(sol[2])
-        a.append(sol[1] / sol[2])
+        if sol[0] > 0:
+            b.append(sol[0])
+            c.append(sol[1])
+            u.append(sol[2])
+            a.append(sol[1] / sol[2])
     b = Stats(b, percentile = percentile)
     c = Stats(c, percentile = percentile)
     u = Stats(u, percentile = percentile)
@@ -209,19 +224,23 @@ def GenerateSamples(num, times, b, c, u):
     return samples
 
 # plot graph with degradation
-def PlotGraph(x, y, title, xlimits = [], ylimits = []):
-    for sample in y:
-        plt.plot(t, sample)
+def PlotGraph(x, yy, title, xlimits = [], ylimits = [], critical = 0, labels = ['Time', 'Degradation']):
+    if critical > 0:
+        # plot horizontal line with critical level
+        plt.axhline(critical)
+    for y in yy:
+        # plot samples
+        plt.plot(x, y)
     plt.grid()
-    plt.xlabel('Time')
-    plt.ylabel('Degradation')
+    plt.xlabel(labels[0])
+    plt.ylabel(labels[1])
     if xlimits:
         plt.xlim(*xlimits)
     if ylimits:
         plt.ylim(*ylimits)
     plt.title(title)
     #plt.show()
-    plt.savefig('{}.png'.format(title.replace(' ', '_').replace('\n', ' ')))
+    plt.savefig('{}.png'.format(title.replace('\n', ' ')))
     plt.close()
 
 # print a sample elegantly to satisfy my OCD
@@ -229,11 +248,11 @@ def PrintSample(sample, sep, pad, decs):
     print(sep.join(['{:{}.{}f}'.format(s, pad + 1 + decs, decs) for s in sample]).strip())
 
 # print and/or plot samples
-def PrintPlotSamples(t, samples, b, c, u, where, method = '', limits = [[], []]):
+def PrintPlotSamples(t, samples, b, c, u, where, method = '', limits = [[], []], critical = 0):
     if method is None:
         title = 'Original samples'
     elif method:
-        title = 'Samples generated with {}\n(b = {:.2f}, c = {:.2f}, u = {:.2f}, a = {:.2f})'.format(method, b, c, u, c / u)
+        title = 'Samples generated with {}\n(b = {:.3f}, c = {:.3f}, u = {:.3f}, a = {:.3f})'.format(method, b, c, u, c / u)
     else:
         title = 'Samples generated'
     # print to console
@@ -247,7 +266,24 @@ def PrintPlotSamples(t, samples, b, c, u, where, method = '', limits = [[], []])
             PrintSample(sample, args.sep, pad, decs)
     # plot to graph
     if where in ['graphs', 'both']:
-        PlotGraph(t, samples, title, limits[0], limits[1])
+        PlotGraph(t, samples, title, limits[0], limits[1], critical)
+
+# given t, x and the critical value for x, estimate the time of failure
+def GetFailureTime(t, x, critical):
+    # failure has not happened yet
+    if x[-1] < critical:
+        failtime = None
+    # time of failure in t
+    elif critical in x:
+        failtime = t[x.index(critical)]
+    # estimate time of failure
+    else:
+        index = x.index(max([xx for xx in x if xx < critical]))  # index of last sample before failure
+        prev = [t[index], x[index]]  # last sample before failure
+        next = [t[index + 1], x[index + 1]]  # first sample after failure
+        # apply a proportion to compute time of failure
+        failtime = prev[0] + (next[0] - prev[0]) * (critical - prev[1]) / (next[1] - prev[1])
+    return failtime
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -259,10 +295,11 @@ if __name__ == '__main__':
     parser.add_argument('--percentiles', default = 2.5, type = float, help = 'percentiles to show for estimated parameters (default 2.5% and 97.5%, the second one is 100 minus the first one)')
     # arguments needed to generate random samples
     parser.add_argument('--numsamples', default = 0, type = int, help = 'number of samples to generate')
-    parser.add_argument('--times', default = '', help = 'if generating samples from custom parameters instead of computed parameters, pass them and the times, separated by "sep" argument')
+    parser.add_argument('--times', default = '', help = 'if generating samples from custom parameters instead of computed parameters, pass them and the times, separated by "sep" argument; a critical value can also be passed')
     parser.add_argument('--b', default = 0, type = float, help = '')
     parser.add_argument('--c', default = 0, type = float, help = '')
     parser.add_argument('--u', default = 0, type = float, help = '')
+    parser.add_argument('--critical', default = 0, type = float, help = '')
     parser.add_argument('--plots', default = 'graphs', help = '"graphs" to plot graphs, "console" to print values, "both" to do both')
     # arguments needed to re-compute parameters after generating samples
     parser.add_argument('--resolve', default = 'no', help = '')
@@ -318,10 +355,10 @@ if __name__ == '__main__':
             b = float(args.b)
             c = float(args.c)
             u = float(args.u)
-            if b * c * u == 0:
+            if b * c * u == 0 or b < 0 or c < 0 or u < 0:
                 sys.exit('Error: insert all parameters with positive values!')
             samples = GenerateSamples(args.numsamples, t, b, c, u)
-            PrintPlotSamples(t, samples, b, c, u, args.plots, method = 'arbitrary parameters', limits = [[0, max(t)], [0, max([max(s) for s in samples])]])
+            PrintPlotSamples(t, samples, b, c, u, args.plots, method = 'arbitrary parameters and critical value {}'.format(args.critical), limits = [[0, max(t)], [0, max([max(s) for s in samples])]], critical = args.critical)
         # inspection times read from dataset
         else:
             # plot graphs with same limits to have a better comparison
@@ -334,12 +371,29 @@ if __name__ == '__main__':
             else:
                 b = bML.mean
             # print original samples
-            PrintPlotSamples(t, xx, None, None, None, args.plots, method = None, limits = limits)
+            PrintPlotSamples(t, xx, None, None, None, args.plots, method = None, limits = limits, critical = args.critical)
             # generate and print samples wih both methods
             samplesML = GenerateSamples(args.numsamples, t, b, cML.mean, uML.mean)
-            PrintPlotSamples(t, samplesML, b, cML.mean, uML.mean, args.plots, method = 'method of maximum likelihood', limits = limits)
+            PrintPlotSamples(t, samplesML, b, cML.mean, uML.mean, args.plots, method = 'method of maximum likelihood', limits = limits, critical = args.critical)
             samplesMom = GenerateSamples(args.numsamples, t, b, cMom.mean, uMom.mean)
-            PrintPlotSamples(t, samplesMom, b, cMom.mean, uMom.mean, args.plots, method = 'method of moments', limits = limits)
+            PrintPlotSamples(t, samplesMom, b, cMom.mean, uMom.mean, args.plots, method = 'method of moments', limits = limits, critical = args.critical)
+    # if a critical value is passed, estimate pdf of failure time
+    if args.critical:
+        # compute failure times
+        failuretimes = []
+        for sample in samples:
+            failuretime = GetFailureTime(t, sample, args.critical)
+            if failuretime is not None:
+                failuretimes.append(failuretime)
+        if failuretimes == []:
+            sys.exit('Error: no sample reached failure!')
+        # estimate pdf of failure time using Gaussian kernels
+        kde = stats.gaussian_kde(failuretimes)
+        # plot the graph
+        xgraph = np.linspace(0.9 * min(failuretimes), 1.1 * max(failuretimes), num = 100)
+        title = 'Estimated pdf of failure time with critical value {}\n(b = {:.3f}, c = {:.3f}, u = {:.3f}, a = {:.3f})'.format(args.critical, b, c, u, c / u)
+        # square brackets for kde(xgraph) because PlotGraph expects a list of lists
+        PlotGraph(xgraph, [kde(xgraph)], title, [min(xgraph), max(xgraph)], [0, 1.1 * max(kde(xgraph))], labels = ['', ''])
     # solve again after generating the samples (used when they come from arbitrary parameters)
     if args.resolve == 'yes':
         bML, cML, uML, aML, cMom, uMom, aMom = SolveBoth(t, samples, bguesses, args.percentiles)
