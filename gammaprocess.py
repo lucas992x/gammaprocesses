@@ -1,7 +1,7 @@
-import argparse, sys, os.path, random
-import numpy as np
+import argparse, sys, os.path
 import matplotlib.pyplot as plt
-from scipy import stats
+import numpy as np
+from scipy.stats import gaussian_kde, norm
 from scipy.optimize import curve_fit, minimize, fsolve
 from scipy.special import gamma, digamma
 
@@ -17,25 +17,27 @@ from scipy.special import gamma, digamma
 # compute mean, variance and two percentiles of obtained values (default 2.5% and 97.5%)
 class Stats:
     def __init__(self, data, percentile = 2.5):
+        self.values = data
         self.n = len(data)
         self.mean = sum(data) / self.n
-        self.variance = sum([(x - self.mean) ** 2 for x in data]) / self.n
+        sqsum = sum([(x - self.mean) ** 2 for x in data])
+        self.variance = sqsum / self.n
+        self.std = np.sqrt(sqsum / (self.n - 1))
         self.lowperc = np.percentile(data, percentile)
         self.upperc = np.percentile(data, 100 - percentile)
 
 # read values from dataset, separated by 'sep' (comma, semicolon or whatever)
-# 'rows' mode: row 1 contains values of t, other rows values of x (one object per row)
-# 'columns' mode: row j contains t[j], x1[j], x2[j], ..., xn[j]
-# returns t = [t0, t1, t2, ...] and x = [[x1], [x2], [x3], ...] where [xj] = [xj0, xj1, xj2, ...]
-# automatically adds t[0] = 0 and xj[0] = 0 if missing from dataset
+# return t = [t0, t1, ...] and x = [[x1], [x2], ...] where [xj] = [xj0, xj1, ...]
 def ReadDataset(datafile, sep, mode):
     if not os.path.isfile(datafile):
         sys.exit('Error: file "{}" not found!'.format(datafile))
+    # 'rows' mode: row 1 contains values of t, other rows values of x (one object per row)
     if mode == 'rows':
         with open(datafile) as file:
             lines = file.read().splitlines()
         t = [float(tt) for tt in lines[0].strip().split(sep)]
         x = [[float(xx) for xx in lines[j].strip().split(sep)] for j in range(1, len(lines))]
+    # 'columns' mode: row j contains t[j], x1[j], x2[j], ..., xn[j]
     elif mode == 'columns':
         t = []
         x = []
@@ -223,14 +225,19 @@ def GenerateSamples(num, times, b, c, u):
         samples.append(sample)
     return samples
 
-# plot graph with degradation
+# plot graph
 def PlotGraph(x, yy, title, xlimits = [], ylimits = [], critical = 0, labels = ['Time', 'Degradation']):
-    if critical > 0:
+    if len(yy) == 2:
+        # in this case plot normal pdf with a dotted line and estimated pdf with a continuous line
+        plt.plot(x, yy[1], linestyle = ':')
+        plt.plot(x, yy[0])
+    else:
         # plot horizontal line with critical level
-        plt.axhline(critical)
-    for y in yy:
-        # plot samples
-        plt.plot(x, y)
+        if critical > 0:
+            plt.axhline(critical)
+        # plot all samples
+        for y in yy:
+            plt.plot(x, y)
     plt.grid()
     plt.xlabel(labels[0])
     plt.ylabel(labels[1])
@@ -250,7 +257,10 @@ def PrintSample(sample, sep, pad, decs):
 # print and/or plot samples
 def PrintPlotSamples(t, samples, b, c, u, where, method = '', limits = [[], []], critical = 0):
     if method is None:
-        title = 'Original samples'
+        if critical > 0:
+            title = 'Original samples\n(critical = {})'.format(critical)
+        else:
+            title = 'Original samples'
     elif method:
         title = 'Samples generated with {}\n(b = {:.3f}, c = {:.3f}, u = {:.3f}, a = {:.3f})'.format(method, b, c, u, c / u)
     else:
@@ -321,7 +331,7 @@ if __name__ == '__main__':
         if args.b0:
             for x in xx:
                 c1, u1 = SolveMoments(t, x, args.b0)
-                c2, u2 = SolveMaxLike(t, x, [args.b0, c1 * random.uniform(0.95, 1.05)])
+                c2, u2 = SolveMaxLike(t, x, [args.b0, c1 * np.random.uniform(0.95, 1.05)])
                 cMom.append(c1)
                 uMom.append(u1)
                 aMom.append(c1 / u1)
@@ -374,9 +384,9 @@ if __name__ == '__main__':
             PrintPlotSamples(t, xx, None, None, None, args.plots, method = None, limits = limits, critical = args.critical)
             # generate and print samples wih both methods
             samplesML = GenerateSamples(args.numsamples, t, b, cML.mean, uML.mean)
-            PrintPlotSamples(t, samplesML, b, cML.mean, uML.mean, args.plots, method = 'method of maximum likelihood', limits = limits, critical = args.critical)
+            PrintPlotSamples(t, samplesML, b, cML.mean, uML.mean, args.plots, method = 'parameters obtained from method of maximum likelihood', limits = limits, critical = args.critical)
             samplesMom = GenerateSamples(args.numsamples, t, b, cMom.mean, uMom.mean)
-            PrintPlotSamples(t, samplesMom, b, cMom.mean, uMom.mean, args.plots, method = 'method of moments', limits = limits, critical = args.critical)
+            PrintPlotSamples(t, samplesMom, b, cMom.mean, uMom.mean, args.plots, method = 'parameters obtained from method of moments', limits = limits, critical = args.critical)
     # if a critical value is passed, estimate pdf of failure time
     if args.critical:
         # compute failure times
@@ -387,13 +397,17 @@ if __name__ == '__main__':
                 failuretimes.append(failuretime)
         if failuretimes == []:
             sys.exit('Error: no sample reached failure!')
-        # estimate pdf of failure time using Gaussian kernels
-        kde = stats.gaussian_kde(failuretimes)
+        failuretimes = Stats(failuretimes, percentile = args.percentiles)
         # plot the graph
-        xgraph = np.linspace(0.9 * min(failuretimes), 1.1 * max(failuretimes), num = 100)
-        title = 'Estimated pdf of failure time with critical value {}\n(b = {:.3f}, c = {:.3f}, u = {:.3f}, a = {:.3f})'.format(args.critical, b, c, u, c / u)
-        # square brackets for kde(xgraph) because PlotGraph expects a list of lists
-        PlotGraph(xgraph, [kde(xgraph)], title, [min(xgraph), max(xgraph)], [0, 1.1 * max(kde(xgraph))], labels = ['', ''])
+        #xgraph = np.linspace(0.9 * min(failuretimes.values), 1.1 * max(failuretimes.values), num = 100)
+        xgraph = np.linspace(0.9 * failuretimes.lowperc, 1.1 * failuretimes.upperc, num = 100)
+        title = 'Estimated pdf of failure time with {} samples and critical value {}\n(b = {:.3f}, c = {:.3f}, u = {:.3f}, a = {:.3f})'.format(args.numsamples, args.critical, b, c, u, c / u)
+        # estimate pdf of failure time using Gaussian kernels
+        kde = gaussian_kde(failuretimes.values)
+        # normal distribution, to compare it with estimated pdf
+        normpdf = norm.pdf(xgraph, failuretimes.mean, failuretimes.std)
+        # plot the two curves on the same graph
+        PlotGraph(xgraph, [kde(xgraph), normpdf], title, [min(xgraph), max(xgraph)], [0, 1.05 * max([max(kde(xgraph)), max(normpdf)])], labels = ['', ''])
     # solve again after generating the samples (used when they come from arbitrary parameters)
     if args.resolve == 'yes':
         bML, cML, uML, aML, cMom, uMom, aMom = SolveBoth(t, samples, bguesses, args.percentiles)
