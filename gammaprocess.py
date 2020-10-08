@@ -8,10 +8,12 @@ from scipy.special import gamma, digamma
 # Examples
 # python gammaprocess.py --file gaaslasers_data.txt --sep ',' --mode rows --numsamples 15 --critical 10 | tee gaaslasers_results.txt
 # python gammaprocess.py --file fatiguecrack_data.txt --sep ',' --mode rows --numsamples 10 --critical 0.4 | tee fatiguecrack_results.txt
+# python gammaprocess.py --numsamples 500 --times '1,2,3,4,5,6,7,8,9,10' --b 1.4 --c 11 --u 6 --plots graphs --critical 30 --resolve yes | tee simulation.txt
 
 # Notes and TODOs:
 # Raises warnings like "RuntimeWarning: invalid value encountered in double_scalars" or "RuntimeWarning: divide by zero encountered in power"
-# Has problems with b greater than 2 (correlated to the previous problem?)
+# ML has problems with b greater than 2 (correlated to the previous problem?)
+# Generate samples after computing parameters from dataset (maybe)
 # Should use better file names for graphs
 
 # compute mean, variance and two percentiles of some data (default 2.5% and 97.5%)
@@ -29,6 +31,7 @@ class Stats:
         sqsum = sum([(x - self.mean) ** 2 for x in self.values])
         self.variance = sqsum / self.n
         self.std = np.sqrt(sqsum / (self.n - 1))
+        self.perc = percentile
         self.lowperc = np.percentile(self.values, percentile)
         self.upperc = np.percentile(self.values, 100 - percentile)
 
@@ -69,8 +72,8 @@ def ReadDataset(datafile, sep, mode):
             xx.append(xj)
     return t, xx
 
-# loglikelihood function of the increments with respect to c and u
-def loglike(params, *args):
+# likelihood function of the increments with respect to c and u
+def IncrLikelihood(params, *args):
     b, c, u = params
     t, delta = args
     w = [t[j] ** b - t[j - 1] ** b for j in range(1, len(t))]
@@ -78,7 +81,7 @@ def loglike(params, *args):
     return -np.prod([(u ** (c * w[j])) * (delta[j] ** (c * w[j] - 1)) * np.exp(-1 * u * delta[j]) / (gamma(c * w[j])) for j in range(len(w))])
 
 # maximum-likelihood estimator of c (used as constraint to solve using ML method)
-def maxlikec(params, *args):
+def MaxLikeC(params, *args):
     b, c, u = params  # u unused here
     t, delta, xn = args
     w = [t[j] ** b - t[j - 1] ** b for j in range(1, len(t))]
@@ -92,7 +95,7 @@ def maxlikec(params, *args):
         return sum([w[j] * (digamma(c * w[j]) - np.log(delta[j])) for j in range(len(w))]) - (t[-1] ** b) * np.log(logarg)
 
 # maximum-likelihood estimator of u (used as constraint to solve using ML method)
-def maxlikeu(params, *args):
+def MaxLikeU(params, *args):
     b, c, u = params
     tn, xn = args
     return u - c * (tn ** b) / xn
@@ -108,120 +111,152 @@ def SolveMoments(t, x, b):
     return c, u
 
 # solve using method of maximum likelihood
-# if values = [b0, c0, u0] all parameters are evaluated, with this values as initial guesses
-# if values = [b0, c0] only c and u are evaluated, b0 is fixed and c0 initial guess
-def SolveMaxLike(t, x, values):
+# if guesses = [b0, c0, u0] all parameters are evaluated, with these values as initial guesses
+# if guesses = [b0, c0] only c and u are evaluated, b0 is fixed and c0 initial guess
+def SolveMaxLike(t, x, guesses):
     n = len(x)
     delta = [x[j] - x[j - 1] for j in range(1, n)]
-    if len(values) == 3:
-        mins = minimize(loglike, values, args = (t, delta), constraints = [
-        {'type': 'eq', 'fun': maxlikec, 'args': (t, delta, x[-1])},
-        {'type': 'eq', 'fun': maxlikeu, 'args': (t[-1], x[-1])} ],
+    if len(guesses) == 3:
+        mins = minimize(IncrLikelihood, guesses, args = (t, delta), constraints = [
+        {'type': 'eq', 'fun': MaxLikeC, 'args': (t, delta, x[-1])},
+        {'type': 'eq', 'fun': MaxLikeU, 'args': (t[-1], x[-1])} ],
         bounds = ((0, None), (0, None), (0, None)))
         if mins.success == True:
             return mins.x[0], mins.x[1], mins.x[2]  # b, c, u
         else:
             return 0, 0, 0
     else:
-        b0, c0 = values
+        b0, c0 = guesses
         w = [t[j] ** b0 - t[j - 1] ** b0 for j in range(1, n)]
         func = lambda c : sum([w[j] * (digamma(c * w[j]) - np.log(delta[j])) for j in range(n - 1)]) - (t[-1] ** b0) * np.log(c * (t[-1] ** b0) / x[-1])
         c = fsolve(func, c0)[0]
         u = c * (t[-1] ** b0) / x[-1]
         return c, u
 
-# function that will be fitted to get an initial guess for exponent value
-def expon(t, a, b):
+# function that will be fitted
+def Expon(t, a, b):
     return a * (t ** b)
 
-# solve using method of maximum likelihood
-# first try to get an initial guess for b by fitting the previous function
-# if this doesn't work, use the initial guesses passed as argument
-# each value can lead to local minimimum, so they are compared to find the actual minimum
-# 3rd sample of fatiguecrack breaks all: b0 = 1.064, c0 = 27.221, u0 = 92.883, b = 49.990, c = 765.704, u = 15.078
-def TrySolveSingle(t, x, bguesses):
-    params = curve_fit(expon, t, x)
-    b0 = params[0][1]
-    c0, u0 = SolveMoments(t, x, b0)  # get initial guesses for c and u that satisfy constrains
-    b, c, u = SolveMaxLike(t, x, [b0, c0, u0])
-    #print('b0 = {}, c0 = {}, u0 = {}\nb = {}, c = {}, u = {}'.format(b0, c0, u0, b, c, u))
-    if b > 0 and c > 0 and u > 0:
-        return b, c, u
-    else:
-        solutions = []
-        for b0 in bguesses:
-            c0, u0 = SolveMoments(t, x, b0)  # get initial guesses for c and u that satisfy constrains
-            b, c, u = SolveMaxLike(t, x, [b0, c0, u0])
-            if b > 0:
-                solutions.append([b, c, u])
-        if solutions == []:
-            sys.exit('Error: no solutions found for {}!'.format(x))
-        delta = [x[j] - x[j - 1] for j in range(1, len(x))]
-        minimum = sys.float_info.max
-        minsol = 3 * [minimum]
-        for solution in solutions:
-            llvalue = loglike(solution, t, delta)
-            if llvalue < minimum:
-                minimum = llvalue
-                minsol = solution
-        #print('b = {}, c = {}, u = {}\n----------'.format(*minsol))
-        return minsol  # [b, c, u]
+# print results for given parameter
+def PrintResults(param, desc):
+    print(desc)
+    print('            Mean          Variance  {:4.1f}% percentile  {:4.1f}% percentile'.format(param.perc, 100 - param.perc))
+    print('{:16.3f}  {:16.3f}  {:16.3f}  {:16.3f}'.format(param.mean, param.variance, param.lowperc, param.upperc))
+    print('')
 
-# try to solve with method of maximum likelihood
-def TrySolve(t, xx, bguesses, percentile):
-    b = []
-    c = []
-    u = []
-    a = []
+# solve to compute parameters b, c, u
+def SolveAll3(t, xx, bguesses, percentiles, prnt = False):
+    # initialize stuff
+    bExp = []
+    aExp = []
+    bML = []
+    cML = []
+    uML = []
+    cMomExp = []
+    uMomExp = []
+    cMomML = []
+    uMomML = []
     for x in xx:
-        sol = TrySolveSingle(t, x, bguesses)
-        if sol[0] > 0:
-            b.append(sol[0])
-            c.append(sol[1])
-            u.append(sol[2])
-            a.append(sol[1] / sol[2])
-    b = Stats(b, percentile = percentile)
-    c = Stats(c, percentile = percentile)
-    u = Stats(u, percentile = percentile)
-    a = Stats(a, percentile = percentile)
-    return b, c, u, a
+        # fit function
+        params = curve_fit(Expon, t, x)
+        a0, b0 = params[0]
+        bExp.append(b0)
+        aExp.append(a0)
+        c0, u0 = SolveMoments(t, x, b0)  # also used as initial guesses that satisfy constrains
+        cMomExp.append(c0)
+        uMomExp.append(u0)
+        # solve with method of maximum likelihood
+        b1, c1, u1 = SolveMaxLike(t, x, [b0, c0, u0])
+        if b1 > 0:
+            solML = [b1, c1, u1]
+        else:
+            # try to solve with various guesses for b
+            solutions = []
+            for bg in bguesses:
+                c0, u0 = SolveMoments(t, x, bg)  # get initial guesses for c and u that satisfy constrains
+                b1, c1, u1 = SolveMaxLike(t, x, [bg, c0, u0])
+                if b1 > 0:
+                    solutions.append([b1, c1, u1])
+            if solutions == []:
+                solML = [0, 0, 0]
+            else:
+                # find the actual minimum among solutions (which can contain local minima)
+                delta = [x[j] - x[j - 1] for j in range(1, len(x))]
+                minimum = sys.float_info.max
+                solML = 3 * [minimum]
+                for solution in solutions:
+                    llvalue = IncrLikelihood(solution, t, delta)
+                    if llvalue < minimum:
+                        minimum = llvalue
+                        solML = solution
+        bML.append(solML[0])
+        cML.append(solML[1])
+        uML.append(solML[2])
+        c3, u3 = SolveMoments(t, x, solML[0])
+        cMomML.append(c3)
+        uMomML.append(u3)
+    # compute mean, variance and two percentiles for obtained values
+    bExp = Stats(bExp, percentile = percentiles)
+    aExp = Stats(aExp, percentile = percentiles)
+    bML = Stats(bML, percentile = percentiles)
+    aML = Stats([c / u for c in cML for u in uML], percentile = percentiles)
+    cML = Stats(cML, percentile = percentiles)
+    uML = Stats(uML, percentile = percentiles)
+    aMomExp = Stats([c / u for c in cMomExp for u in uMomExp], percentile = percentiles)
+    cMomExp = Stats(cMomExp, percentile = percentiles)
+    uMomExp = Stats(uMomExp, percentile = percentiles)
+    aMomML = Stats([c / u for c in cMomML for u in uMomML], percentile = percentiles)
+    cMomML = Stats(cMomML, percentile = percentiles)
+    uMomML = Stats(uMomML, percentile = percentiles)
+    # print all results
+    if prnt == True:
+        PrintResults(bExp, 'Parameter b computed fitting exponential function:')
+        PrintResults(aExp, 'Parameter a computed fitting exponential function:')
+        PrintResults(bML, 'Parameter b computed with method of maximum likelihood:')
+        PrintResults(cML, 'Parameter c computed with method of maximum likelihood:')
+        PrintResults(uML, 'Parameter u computed with method of maximum likelihood:')
+        PrintResults(aML, 'Parameter a computed with method of maximum likelihood:')
+        PrintResults(cMomExp, 'Parameter c computed with method of moments and b fitted:')
+        PrintResults(uMomExp, 'Parameter u computed with method of moments and b fitted:')
+        PrintResults(aMomExp, 'Parameter a computed with method of moments and b fitted:')
+        PrintResults(cMomML, 'Parameter c computed with method of moments and b from ML:')
+        PrintResults(uMomML, 'Parameter u computed with method of moments and b from ML:')
+        PrintResults(aMomML, 'Parameter a computed with method of moments and b from ML:')
+    return bExp, aExp, bML, cML, uML, aML, cMomExp, uMomExp, aMomExp, cMomML, uMomML, aMomML
 
-# solve using both methods
-# method of moments uses b obtained from method of maximum likelihood
-def SolveBoth(t, xx, bguesses, percentiles):
-    bML, cML, uML, aML = TrySolve(t, xx, bguesses, percentiles)
+# solve to compute parameters c and u
+def SolveAll2(t, xx, b, percentiles, prnt = False):
+    # initialize stuff
     cMom = []
     uMom = []
-    aMom = []
+    cML = []
+    uML = []
+    # compute parameters with both methods
     for x in xx:
-        c, u = SolveMoments(t, x, bML.mean)
-        cMom.append(c)
-        uMom.append(u)
-        aMom.append(c / u)
+        c1, u1 = SolveMoments(t, x, b)
+        c2, u2 = SolveMaxLike(t, x, [b, c1 * np.random.uniform(0.95, 1.05)])
+        cMom.append(c1)
+        uMom.append(u1)
+        aMom.append(c1 / u1)
+        cML.append(c2)
+        uML.append(u2)
+        aML.append(c2 / u2)
+    # compute mean, variance and two percentiles for obtained values
     cMom = Stats(cMom, percentile = percentiles)
     uMom = Stats(uMom, percentile = percentiles)
     aMom = Stats(aMom, percentile = percentiles)
-    return bML, cML, uML, aML, cMom, uMom, aMom
-
-# print results after computing c and u
-def PrintResults2(method, c, u, a, percentile):
-    print('{}: results'.format(method))
-    print('                           c          u          a')
-    print('Mean:               {:8.3f}   {:8.3f}   {:8.3f}'.format(c.mean, u.mean, a.mean))
-    print('Variance:           {:8.3f}   {:8.3f}   {:8.3f}'.format(c.variance, u.variance, a.variance))
-    print('{:4.1f}% percentile:   {:8.3f}   {:8.3f}   {:8.3f}'.format(percentile, c.lowperc, u.lowperc, a.lowperc))
-    print('{:4.1f}% percentile:   {:8.3f}   {:8.3f}   {:8.3f}'.format(100 - percentile, c.upperc, u.upperc, a.upperc))
-    print('')
-
-# print results after computing b, c, u
-def PrintResults3(method, b, c, u, a, percentile):
-    print('{}: results'.format(method))
-    print('                           b          c          u          a')
-    print('Mean:               {:8.3f}   {:8.3f}   {:8.3f}   {:8.3f}'.format(b.mean, c.mean, u.mean, a.mean))
-    print('Variance:           {:8.3f}   {:8.3f}   {:8.3f}   {:8.3f}'.format(b.variance, c.variance, u.variance, a.variance))
-    print('{:4.1f}% percentile:   {:8.3f}   {:8.3f}   {:8.3f}   {:8.3f}'.format(percentile, b.lowperc, c.lowperc, u.lowperc, a.lowperc))
-    print('{:4.1f}% percentile:   {:8.3f}   {:8.3f}   {:8.3f}   {:8.3f}'.format(100 - percentile, b.upperc, c.upperc, u.upperc, a.upperc))
-    print('')
+    cML = Stats(cML, percentile = percentiles)
+    uML = Stats(uML, percentile = percentiles)
+    aML = Stats(aML, percentile = percentiles)
+    # print all results
+    if prnt == True:
+        PrintResults(cML, 'Parameter c computed with method of maximum likelihood:')
+        PrintResults(uML, 'Parameter u computed with method of maximum likelihood:')
+        PrintResults(aML, 'Parameter a computed with method of maximum likelihood:')
+        PrintResults(cMom, 'Parameter c computed with method of moments:')
+        PrintResults(uMom, 'Parameter u computed with method of moments:')
+        PrintResults(aMom, 'Parameter a computed with method of moments:')
+    return cMom, uMom, aMom, cML, uML, aML
 
 # generate random samples
 def GenerateSamples(num, times, b, c, u):
@@ -264,14 +299,6 @@ def PrintSample(sample, sep, pad, decs):
     print(sep.join(['{:{}.{}f}'.format(s, pad + 1 + decs, decs) for s in sample]).strip())
 
 # print and/or plot samples
-#Original samples
-#Original samples, critical = 10.0
-#Estimated pdf of failure time with 50 samples\nb = 1.400, c = 11.000, u = 6.000, a = 1.833, critical = 30.0
-#Samples generated with arbitrary parameters\nb = 1.400, c = 11.000, u = 6.000, a = 1.833
-#Samples generated with arbitrary parameters\nb = 1.400, c = 11.000, u = 6.000, a = 1.833, critical = 30.0
-#Samples generated with parameters obtained from method of maximum likelihood\nb = 1.400, c = 11.000, u = 6.000, a = 1.833
-#Samples generated with parameters obtained from method of maximum likelihood\nb = 1.400, c = 11.000, u = 6.000, a = 1.833, critical = 30.0
-#Samples generated with parameters obtained from method of moments\nb = 1.400, c = 11.000, u = 6.000, a = 1.833, critical = 30.0
 def PrintPlotSamples(t, samples, b, c, u, where, method = None, limits = [[], []], critical = 0):
     if method is None:
         title = 'Original samples'
@@ -350,49 +377,20 @@ if __name__ == '__main__':
     parser.add_argument('--u', default = 0, type = float, help = '')
     parser.add_argument('--critical', default = 0, type = float, help = '')
     parser.add_argument('--plots', default = 'graphs', help = '"graphs" to plot graphs, "console" to print values, "both" to do both')
-    # arguments needed to re-compute parameters after generating samples
+    # argument needed to re-compute parameters after generating samples
     parser.add_argument('--resolve', default = 'no', help = '')
     args = parser.parse_args()
     # intializing stuff
     bguesses = [(j + 1) / 8 for j in range(48)]
-    cMom = []
-    uMom = []
-    aMom = []
-    bML = []
-    cML = []
-    uML = []
-    aML = []
     samples = []
     # read data from dataset if argument is passed
     if args.file:
         t, xx = ReadDataset(args.file, args.sep, args.mode)
         print('{}: {} object(s) detected\n'.format(args.file, len(xx)))
-        # if b0 is passed, both methods are used to compute parameters
         if args.b0:
-            for x in xx:
-                c1, u1 = SolveMoments(t, x, args.b0)
-                c2, u2 = SolveMaxLike(t, x, [args.b0, c1 * np.random.uniform(0.95, 1.05)])
-                cMom.append(c1)
-                uMom.append(u1)
-                aMom.append(c1 / u1)
-                cML.append(c2)
-                uML.append(u2)
-                aML.append(c2 / u2)
-            cMom = Stats(cMom, percentile = args.percentiles)
-            uMom = Stats(uMom, percentile = args.percentiles)
-            aMom = Stats(aMom, percentile = args.percentiles)
-            cML = Stats(cML, percentile = args.percentiles)
-            uML = Stats(uML, percentile = args.percentiles)
-            aML = Stats(aML, percentile = args.percentiles)
-            # print results
-            PrintResults2('Method of moments', cMom, uMom, aMom, args.percentiles)
-            PrintResults2('Method of maximum likelihood', cML, uML, aML, args.percentiles)
-        # if b0 is not passed, b will be evaluated using ML method
+            SolveAll2(t, xx, args.b0, args.percentiles, True)
         else:
-            bML, cML, uML, aML, cMom, uMom, aMom = SolveBoth(t, xx, bguesses, args.percentiles)
-            # print results
-            PrintResults3('Method of maximum likelihood', bML, cML, uML, aML, args.percentiles)
-            PrintResults2('Method of moments', cMom, uMom, aMom, args.percentiles)
+            SolveAll3(t, xx, bguesses, args.percentiles, True)
     # generate random samples
     if args.numsamples:
         if args.plots not in ['graphs', 'console', 'both']:
@@ -409,6 +407,7 @@ if __name__ == '__main__':
                 sys.exit('Error: insert all parameters with positive values!')
             print('Input values: b = {:.3f}, c = {:.3f}, u = {:.3f}, a = {:.3f}'.format(b, c, u, c / u))
             print('Input inspection times: ' + (args.sep + ' ').join([str(tt) for tt in t]))
+            print('')
             samples = GenerateSamples(args.numsamples, t, b, c, u)
             PrintPlotSamples(t, samples, b, c, u, args.plots, method = 'arbitrary parameters', limits = [[0, max(t)], [0, max([max(s) for s in samples])]], critical = args.critical)
         # inspection times read from dataset
@@ -421,7 +420,7 @@ if __name__ == '__main__':
             if args.b0:
                 b = args.b0
             else:
-                b = bML.mean
+                sys.exit('')  # TODO
             # print original samples
             PrintPlotSamples(t, xx, None, None, None, args.plots, method = None, limits = limits, critical = args.critical)
             # generate and print samples wih both methods
@@ -437,7 +436,4 @@ if __name__ == '__main__':
             GetFailurePdf(t, samples, args.critical, b, c, u, args.percentiles)
     # solve after generating the samples (used when they come from arbitrary parameters)
     if args.resolve == 'yes':
-        bML, cML, uML, aML, cMom, uMom, aMom = SolveBoth(t, samples, bguesses, args.percentiles)
-        # print results
-        PrintResults3('Method of maximum likelihood', bML, cML, uML, aML, args.percentiles)
-        PrintResults2('Method of moments', cMom, uMom, aMom, args.percentiles)
+        SolveAll3(t, samples, bguesses, args.percentiles, True)
