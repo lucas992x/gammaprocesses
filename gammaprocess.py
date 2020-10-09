@@ -16,7 +16,7 @@ from scipy.special import gamma, digamma
 # Generate samples after computing parameters from dataset (maybe)
 # Should use better file names for graphs
 
-# compute mean, variance and two percentiles of some data (default 2.5% and 97.5%)
+# compute mean, variance, standard deviation and two percentiles of some data (default 2.5% and 97.5%)
 class Stats:
     def __init__(self, data, percentile = 2.5):
         # remove some data to avoid a result "ruined" by a few mistakes
@@ -377,8 +377,9 @@ if __name__ == '__main__':
     parser.add_argument('--u', default = 0, type = float, help = '')
     parser.add_argument('--critical', default = 0, type = float, help = '')
     parser.add_argument('--plots', default = 'graphs', help = '"graphs" to plot graphs, "console" to print values, "both" to do both')
-    # argument needed to re-compute parameters after generating samples
-    parser.add_argument('--resolve', default = 'no', help = '')
+    # arguments needed to re-compute parameters after generating samples
+    parser.add_argument('--resolve', default = 'no', help = '"yes" to solve again after generating random samples')
+    parser.add_argument('--bknown', default = 'no', help = '"yes" if b has to be treated as known')
     args = parser.parse_args()
     # intializing stuff
     bguesses = [(j + 1) / 8 for j in range(48)]
@@ -388,9 +389,9 @@ if __name__ == '__main__':
         t, xx = ReadDataset(args.file, args.sep, args.mode)
         print('{}: {} object(s) detected\n'.format(args.file, len(xx)))
         if args.b0:
-            SolveAll2(t, xx, args.b0, args.percentiles, True)
+            cMom, uMom, aMom, cML, uML, aML = SolveAll2(t, xx, args.b0, args.percentiles, True)
         else:
-            SolveAll3(t, xx, bguesses, args.percentiles, True)
+            bExp, aExp, bML, cML, uML, aML, cMomExp, uMomExp, aMomExp, cMomML, uMomML, aMomML = SolveAll3(t, xx, bguesses, args.percentiles, True)
     # generate random samples
     if args.numsamples:
         if args.plots not in ['graphs', 'console', 'both']:
@@ -400,16 +401,13 @@ if __name__ == '__main__':
             t = [float(tt) for tt in args.times.split(args.sep)]
             if t[0] > 0:
                 t = [0] + t
-            b = float(args.b)
-            c = float(args.c)
-            u = float(args.u)
-            if b * c * u == 0 or b < 0 or c < 0 or u < 0:
+            if args.b * args.c * args.u == 0 or args.b < 0 or args.c < 0 or args.u < 0:
                 sys.exit('Error: insert all parameters with positive values!')
-            print('Input values: b = {:.3f}, c = {:.3f}, u = {:.3f}, a = {:.3f}'.format(b, c, u, c / u))
+            print('Input values: b = {:.3f}, c = {:.3f}, u = {:.3f}, a = {:.3f}'.format(args.b, args.c, args.u, args.c / args.u))
             print('Input inspection times: ' + (args.sep + ' ').join([str(tt) for tt in t]))
             print('')
-            samples = GenerateSamples(args.numsamples, t, b, c, u)
-            PrintPlotSamples(t, samples, b, c, u, args.plots, method = 'arbitrary parameters', limits = [[0, max(t)], [0, max([max(s) for s in samples])]], critical = args.critical)
+            samples = GenerateSamples(args.numsamples, t, args.b, args.c, args.u)
+            PrintPlotSamples(t, samples, args.b, args.c, args.u, args.plots, method = 'arbitrary parameters', limits = [[0, max(t)], [0, max([max(s) for s in samples])]], critical = args.critical)
         # inspection times read from dataset
         else:
             # plot graphs with same limits to have a better comparison
@@ -417,23 +415,25 @@ if __name__ == '__main__':
                 limits = [[0, max(t)], [0, max([max(x) for x in xx])]]
             else:
                 limits = [[], []]
-            if args.b0:
-                b = args.b0
-            else:
-                sys.exit('')  # TODO
             # print original samples
             PrintPlotSamples(t, xx, None, None, None, args.plots, method = None, limits = limits, critical = args.critical)
-            # generate and print samples wih both methods
-            samplesML = GenerateSamples(args.numsamples, t, b, cML.mean, uML.mean)
-            PrintPlotSamples(t, samplesML, b, cML.mean, uML.mean, args.plots, method = 'parameters from method of maximum likelihood', limits = limits, critical = args.critical)
-            samplesMom = GenerateSamples(args.numsamples, t, b, cMom.mean, uMom.mean)
-            PrintPlotSamples(t, samplesMom, b, cMom.mean, uMom.mean, args.plots, method = 'parameters from method of moments', limits = limits, critical = args.critical)
+            if args.b0:
+                # generate and print samples with both methods
+                samplesML = GenerateSamples(args.numsamples, t, args.b0, cML.mean, uML.mean)
+                PrintPlotSamples(t, samplesML, args.b0, cML.mean, uML.mean, args.plots, method = 'parameters from method of maximum likelihood', limits = limits, critical = args.critical)
+                samplesMom = GenerateSamples(args.numsamples, t, args.b0, cMom.mean, uMom.mean)
+                PrintPlotSamples(t, samplesMom, args.b0, cMom.mean, uMom.mean, args.plots, method = 'parameters from method of moments', limits = limits, critical = args.critical)
+            else:
+                pass  # TODO
     # if a critical value is passed, estimate pdf of failure time
     if args.critical:
         if args.file:
             GetFailurePdf(t, xx, args.critical, None, None, None, args.percentiles)
         else:
-            GetFailurePdf(t, samples, args.critical, b, c, u, args.percentiles)
+            GetFailurePdf(t, samples, args.critical, args.b, args.c, args.u, args.percentiles)
     # solve after generating the samples (used when they come from arbitrary parameters)
     if args.resolve == 'yes':
-        SolveAll3(t, samples, bguesses, args.percentiles, True)
+        if args.bknown == 'yes':
+            SolveAll2(t, samples, args.b, args.percentiles, True)
+        else:
+            SolveAll3(t, samples, bguesses, args.percentiles, True)
