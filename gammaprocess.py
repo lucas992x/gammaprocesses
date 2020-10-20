@@ -139,8 +139,8 @@ def Expon(t, a, b):
 # print results for given parameter
 def PrintResults(param, desc):
     print(desc)
-    print('            Mean          Variance  {:4.1f}% percentile  {:4.1f}% percentile'.format(param.perc, 100 - param.perc))
-    print('{:16.3f}  {:16.3f}  {:16.3f}  {:16.3f}'.format(param.mean, param.variance, param.lowperc, param.upperc))
+    print('            Mean     St. deviation  {:4.1f}% percentile  {:4.1f}% percentile'.format(param.perc, 100 - param.perc))
+    print('{:16.3f}  {:16.3f}  {:16.3f}  {:16.3f}'.format(param.mean, param.std, param.lowperc, param.upperc))
     print('')
 
 # solve to compute parameters b, c, u
@@ -203,77 +203,67 @@ def SolveAll3(t, xx, bguesses, percentiles, prnt = False):
     bExp = Stats(bExp, percentile = percentiles)
     aExp = Stats(aExp, percentile = percentiles)
     bML = Stats(bML, percentile = percentiles)
-    aML = Stats([c / u for c in cML for u in uML], percentile = percentiles)
     cML = Stats(cML, percentile = percentiles)
     uML = Stats(uML, percentile = percentiles)
-    aMLExp = Stats([c / u for c in cMLExp for u in uMLExp], percentile = percentiles)
     cMLExp = Stats(cMLExp, percentile = percentiles)
     uMLExp = Stats(uMLExp, percentile = percentiles)
-    aMomExp = Stats([c / u for c in cMomExp for u in uMomExp], percentile = percentiles)
     cMomExp = Stats(cMomExp, percentile = percentiles)
     uMomExp = Stats(uMomExp, percentile = percentiles)
-    aMomML = Stats([c / u for c in cMomML for u in uMomML], percentile = percentiles)
     cMomML = Stats(cMomML, percentile = percentiles)
     uMomML = Stats(uMomML, percentile = percentiles)
     # print all results
     if prnt == True:
         PrintResults(bExp, 'Parameter b computed fitting exponential function:')
         PrintResults(aExp, 'Parameter a computed fitting exponential function:')
-        print('\n')
+        print('\n\n')
         PrintResults(bML, 'Parameter b computed with method of maximum likelihood:')
         PrintResults(cML, 'Parameter c computed with method of maximum likelihood:')
         PrintResults(uML, 'Parameter u computed with method of maximum likelihood:')
-        PrintResults(aML, 'Parameter a computed with method of maximum likelihood:')
-        print('\n')
+        print('a = c / u = {:.3f}'.format(cML.mean / uML.mean))
+        print('\n\n')
         PrintResults(cMLExp, 'Parameter c computed with method of maximum likelihood and b fitted:')
         PrintResults(uMLExp, 'Parameter u computed with method of maximum likelihood and b fitted:')
-        PrintResults(aMLExp, 'Parameter a computed with method of maximum likelihood and b fitted:')
-        print('\n')
+        print('a = c / u = {:.3f}'.format(cMLExp.mean / uMLExp.mean))
+        print('\n\n')
         PrintResults(cMomExp, 'Parameter c computed with method of moments and b fitted:')
         PrintResults(uMomExp, 'Parameter u computed with method of moments and b fitted:')
-        PrintResults(aMomExp, 'Parameter a computed with method of moments and b fitted:')
-        print('\n')
+        print('a = c / u = {:.3f}'.format(cMomExp.mean / uMomExp.mean))
+        print('\n\n')
         PrintResults(cMomML, 'Parameter c computed with method of moments and b from ML:')
         PrintResults(uMomML, 'Parameter u computed with method of moments and b from ML:')
-        PrintResults(aMomML, 'Parameter a computed with method of moments and b from ML:')
-    return bExp, aExp, bML, cML, uML, aML, cMLExp, uMLExp, aMLExp, cMomExp, uMomExp, aMomExp, cMomML, uMomML, aMomML
+        print('a = c / u = {:.3f}'.format(cMomML.mean / uMomML.mean))
+    return bExp, aExp, bML, cML, uML, cMLExp, uMLExp, cMomExp, uMomExp, cMomML, uMomML
 
 # solve to compute parameters c and u
 def SolveAll2(t, xx, b, percentiles, prnt = False):
     # initialize stuff
     cMom = []
     uMom = []
-    aMom = []
     cML = []
     uML = []
-    aML = []
     # compute parameters with both methods
     for x in xx:
         c1, u1 = SolveMoments(t, x, b)
         c2, u2 = SolveMaxLike(t, x, [b, c1 * np.random.uniform(0.95, 1.05)])
         cMom.append(c1)
         uMom.append(u1)
-        aMom.append(c1 / u1)
         cML.append(c2)
         uML.append(u2)
-        aML.append(c2 / u2)
     # compute mean, variance and two percentiles for obtained values
     cMom = Stats(cMom, percentile = percentiles)
     uMom = Stats(uMom, percentile = percentiles)
-    aMom = Stats(aMom, percentile = percentiles)
     cML = Stats(cML, percentile = percentiles)
     uML = Stats(uML, percentile = percentiles)
-    aML = Stats(aML, percentile = percentiles)
     # print all results
     if prnt == True:
         PrintResults(cML, 'Parameter c computed with method of maximum likelihood:')
         PrintResults(uML, 'Parameter u computed with method of maximum likelihood:')
-        PrintResults(aML, 'Parameter a computed with method of maximum likelihood:')
-        print('\n')
+        print('a = c / u = {:.3f}'.format(cML.mean / uML.mean))
+        print('\n\n')
         PrintResults(cMom, 'Parameter c computed with method of moments:')
         PrintResults(uMom, 'Parameter u computed with method of moments:')
-        PrintResults(aMom, 'Parameter a computed with method of moments:')
-    return cMom, uMom, aMom, cML, uML, aML
+        print('a = c / u = {:.3f}'.format(cMom.mean / uMom.mean))
+    return cMom, uMom, cML, uML
 
 # generate random samples
 def GenerateSamples(num, times, b, c, u):
@@ -378,6 +368,22 @@ def GetFailurePdf(t, samples, critical, b = None, c = None, u = None, percentile
         # plot the two curves on the same graph
         PlotGraph(xgraph, [kde(xgraph), normpdf], title, [min(xgraph), max(xgraph)], [0, 1.05 * max([max(kde(xgraph)), max(normpdf)])], labels = ['', ''])
 
+def GenSamplesAndPlot3(numsamples, t, bML, cML, uML, bExp, cMLExp, uMLExp, cMomExp, uMomExp, cMomML, uMomML, limits, critical, plots):
+    samplesML = GenerateSamples(numsamples, t, bML, cML, uML)
+    PrintPlotSamples(t, samplesML, bML, cML, uML, plots, method = 'parameters\nfrom method of maximum likelihood', limits = limits, critical = critical)
+    samplesMLExp = GenerateSamples(numsamples, t, bExp, cMLExp, uMLExp)
+    PrintPlotSamples(t, samplesMLExp, bExp, cMLExp, uMLExp, plots, method = 'parameters\nfrom method of maximum likelihood (b fitted)', limits = limits, critical = critical)
+    samplesMomExp = GenerateSamples(numsamples, t, bExp, cMomExp, uMomExp)
+    PrintPlotSamples(t, samplesMomExp, bExp, cMomExp, uMomExp, plots, method = 'parameters\nfrom method of moments (b fitted)', limits = limits, critical = critical)
+    samplesMomML = GenerateSamples(numsamples, t, bML, cMomML, uMomML)
+    PrintPlotSamples(t, samplesMomML, bML, cMomML, uMomML, plots, method = 'parameters\nfrom method of method of moments (b from ML)', limits = limits, critical = critical)
+
+def GenSamplesAndPlot2(numsamples, t, b, cML, uML, cMom, uMom, limits, critical, plots):
+    samplesML = GenerateSamples(numsamples, t, b, cML, uML)
+    PrintPlotSamples(t, samplesML, b, cML, uML, plots, method = 'parameters\nfrom method of maximum likelihood', limits = limits, critical = critical)
+    samplesMom = GenerateSamples(numsamples, t, b, cMom, uMom)
+    PrintPlotSamples(t, samplesMom, b, cMom, uMom, plots, method = 'parameters\nfrom method of moments', limits = limits, critical = critical)
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # arguments needed to read a dataset and compute parameters
@@ -406,9 +412,9 @@ if __name__ == '__main__':
         t, xx = ReadDataset(args.file, args.sep, args.mode)
         print('{}: {} object(s) detected\n'.format(args.file, len(xx)))
         if args.b0:
-            cMom, uMom, aMom, cML, uML, aML = SolveAll2(t, xx, args.b0, args.percentiles, True)
+            cMom, uMom, cML, uML = SolveAll2(t, xx, args.b0, args.percentiles, True)
         else:
-            bExp, aExp, bML, cML, uML, aML, cMLExp, uMLExp, aMLExp, cMomExp, uMomExp, aMomExp, cMomML, uMomML, aMomML = SolveAll3(t, xx, bguesses, args.percentiles, True)
+            bExp, aExp, bML, cML, uML, cMLExp, uMLExp, cMomExp, uMomExp, cMomML, uMomML = SolveAll3(t, xx, bguesses, args.percentiles, True)
     # generate random samples
     if args.numsamples:
         if args.plots not in ['graphs', 'console', 'both']:
@@ -424,7 +430,8 @@ if __name__ == '__main__':
             print('Input inspection times: ' + (args.sep + ' ').join([str(tt) for tt in t]))
             print('')
             samples = GenerateSamples(args.numsamples, t, args.b, args.c, args.u)
-            PrintPlotSamples(t, samples, args.b, args.c, args.u, args.plots, method = 'arbitrary parameters', limits = [[0, max(t)], [0, max([max(s) for s in samples])]], critical = args.critical)
+            limits = [[0, max(t)], [0, max([max(s) for s in samples])]]
+            PrintPlotSamples(t, samples, args.b, args.c, args.u, args.plots, method = 'arbitrary parameters', limits = limits, critical = args.critical)
         # inspection times read from dataset
         else:
             # plot graphs with same limits to have a better comparison
@@ -436,19 +443,9 @@ if __name__ == '__main__':
             PrintPlotSamples(t, xx, None, None, None, args.plots, method = None, limits = limits, critical = args.critical)
             if args.b0:
                 # generate and print samples with both methods
-                samplesML = GenerateSamples(args.numsamples, t, args.b0, cML.mean, uML.mean)
-                PrintPlotSamples(t, samplesML, args.b0, cML.mean, uML.mean, args.plots, method = 'parameters\nfrom method of maximum likelihood', limits = limits, critical = args.critical)
-                samplesMom = GenerateSamples(args.numsamples, t, args.b0, cMom.mean, uMom.mean)
-                PrintPlotSamples(t, samplesMom, args.b0, cMom.mean, uMom.mean, args.plots, method = 'parameters\nfrom method of moments', limits = limits, critical = args.critical)
+                GenSamplesAndPlot2(args.numsamples, t, args.b0, cML.mean, uML.mean, cMom.mean, uMom.mean, limits, args.critical, args.plots)
             else:
-                samplesML = GenerateSamples(args.numsamples, t, bML.mean, cML.mean, uML.mean)
-                PrintPlotSamples(t, samplesML, bML.mean, cML.mean, uML.mean, args.plots, method = 'parameters\nfrom method of maximum likelihood', limits = limits, critical = args.critical)
-                samplesMLExp = GenerateSamples(args.numsamples, t, bExp.mean, cMLExp.mean, uMLExp.mean)
-                PrintPlotSamples(t, samplesMLExp, bExp.mean, cMLExp.mean, uMLExp.mean, args.plots, method = 'parameters\nfrom method of maximum likelihood (b fitted)', limits = limits, critical = args.critical)
-                samplesMomExp = GenerateSamples(args.numsamples, t, bExp.mean, cMomExp.mean, uMomExp.mean)
-                PrintPlotSamples(t, samplesMomExp, bExp.mean, cMomExp.mean, uMomExp.mean, args.plots, method = 'parameters\nfrom method of moments (b fitted)', limits = limits, critical = args.critical)
-                samplesMomML = GenerateSamples(args.numsamples, t, bML.mean, cMomML.mean, uMomML.mean)
-                PrintPlotSamples(t, samplesMomML, bML.mean, cMomML.mean, uMomML.mean, args.plots, method = 'parameters\nfrom method of method of moments (b from ML)', limits = limits, critical = args.critical)
+                GenSamplesAndPlot3(args.numsamples, t, bML.mean, cML.mean, uML.mean, bExp.mean, cMLExp.mean, uMLExp.mean, cMomExp.mean, uMomExp.mean, cMomML.mean, uMomML.mean, limits, args.critical, args.plots)
     # if a critical value is passed, estimate pdf of failure time
     if args.critical:
         if args.file:
@@ -458,6 +455,8 @@ if __name__ == '__main__':
     # solve after generating the samples (used when they come from arbitrary parameters)
     if args.resolve == 'yes':
         if args.bknown == 'yes':
-            SolveAll2(t, samples, args.b, args.percentiles, True)
+            cMom, uMom, cML, uML = SolveAll2(t, samples, args.b, args.percentiles, True)
+            GenSamplesAndPlot2(args.numsamples, t, args.b, cML.mean, uML.mean, cMom.mean, uMom.mean, limits, args.critical, args.plots)
         else:
-            SolveAll3(t, samples, bguesses, args.percentiles, True)
+            bExp, aExp, bML, cML, uML, cMLExp, uMLExp, cMomExp, uMomExp, cMomML, uMomML = SolveAll3 = SolveAll3(t, samples, bguesses, args.percentiles, True)
+            GenSamplesAndPlot3(args.numsamples, t, bML.mean, cML.mean, uML.mean, bExp.mean, cMLExp.mean, uMLExp.mean, cMomExp.mean, uMomExp.mean, cMomML.mean, uMomML.mean, limits, args.critical, args.plots)
