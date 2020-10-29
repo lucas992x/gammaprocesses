@@ -6,14 +6,16 @@ from scipy.optimize import curve_fit, minimize, fsolve
 from scipy.special import gamma, digamma
 
 # Examples
-# python gammaprocess.py --file gaaslasers_data.txt --sep ',' --mode rows --numsamples 15 --critical 10 | tee gaaslasers_results.txt
-# python gammaprocess.py --file fatiguecrack_data.txt --sep ',' --mode rows --numsamples 10 --critical 0.4 | tee fatiguecrack_results.txt
-# python gammaprocess.py --numsamples 500 --times '1,2,3,4,5,6,7,8,9,10' --b 1.4 --c 11 --u 6 --plots graphs --critical 30 --resolve yes | tee results.txt
+# python3 gammaprocess.py --file gaaslasers_data.txt --sep ',' --mode rows --numsamples 15 --critical 10 | tee gaaslasers_results.txt
+# python3 gammaprocess.py --file fatiguecrack_data.txt --sep ',' --mode rows --numsamples 10 --critical 0.4 | tee fatiguecrack_results.txt
+# python3 gammaprocess.py --numsamples 500 --times '1,2,3,4,5,6,7,8,9,10' --b 1.4 --c 11 --u 6 --plots graphs --critical 30 --resolve yes | tee results.txt
 
 # Notes and TODOs:
 # Raises warnings like "RuntimeWarning: invalid value encountered in double_scalars" or "RuntimeWarning: divide by zero encountered in power"
 # ML has problems with b greater than 2
+# Try to fix c and u estimations by computing variance
 # Change file names for graphs (maybe)
+# Plot of estimated pdf is "shrinked" in some cases
 
 # compute mean, variance, standard deviation and two percentiles of some data (default 2.5% and 97.5%)
 class Stats:
@@ -278,6 +280,14 @@ def GenerateSamples(num, times, b, c, u):
 
 # plot graph
 def PlotGraph(x, yy, title, xlimits = [], ylimits = [], critical = 0, labels = ['Time', 'Degradation']):
+    # adjust text size
+    rcparams = {
+    'axes.titlesize': 11,
+    'axes.labelsize': 10,
+    'xtick.labelsize': 8,
+    'ytick.labelsize': 8,
+    }
+    plt.rcParams.update(rcparams)
     if len(yy) == 2:
         # in this case plot normal pdf with a dotted line and estimated pdf with a continuous line
         plt.plot(x, yy[1], linestyle = ':')
