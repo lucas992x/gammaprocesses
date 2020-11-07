@@ -6,8 +6,8 @@ from scipy.optimize import curve_fit, minimize, fsolve
 from scipy.special import gamma, digamma
 
 # Examples
-# python3 gammaprocess.py --file fatiguecrack_data.txt --sep ',' --mode rows --numsamples 10 --critical 0.4 | tee results.txt
-# python3 gammaprocess.py --file gaaslasers_data.txt --sep ',' --mode rows --numsamples 15 --critical 10 | tee results.txt
+# python3 gammaprocess.py --file fatiguecrack_data.txt --sep ',' --mode rows --numsamples 50 --critical 0.4 | tee results.txt
+# python3 gammaprocess.py --file gaaslasers_data.txt --sep ',' --mode rows --numsamples 50 --critical 10 | tee results.txt
 # python3 gammaprocess.py --numsamples 500 --times '1,2,3,4,5,6,7,8,9,10' --b 1.4 --c 11 --u 6 --plots graphs --critical 30 --resolve yes | tee results.txt
 # python3 gammaprocess.py --numsamples 50 --times '0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9' --b 1.02 --c 22.49 --u 59.81 --numsamples 50 --plots graphs --graphmax 0.495 --critical 0.4
 # python3 gammaprocess.py --numsamples 50 --times '250,500,750,1000,1250,1500,1750,2000,2250,2500,2750,3000,3250,3500,3750,4000' --b 0.998 --c 0.030 --u 14.25 --plots graphs --graphmax 12.21 --critical 10
@@ -497,19 +497,19 @@ if __name__ == '__main__':
         else:
             bExp, aExp, bML, cML, uML, cMLExp, uMLExp, cMomExp, uMomExp, cMomML, uMomML = SolveAll3 = SolveAll3(t, samples, bguesses, args.percentiles, True)
             GenSamplesAndPlot3(args.numsamples, t, bML.mean, cML.mean, uML.mean, bExp.mean, cMLExp.mean, uMLExp.mean, cMomExp.mean, uMomExp.mean, cMomML.mean, uMomML.mean, limits, args.critical, args.plots)
-    # compute AIC, BIC, DIC
+    # compute AIC and BIC
     if args.file or args.resolve == 'yes':
-        print('\n\n\nAkaike information citerion, Bayesian information criterion and Deviance information criterion:')
+        print('\n\n\nAkaike information citerion and Bayesian information criterion:')
         if args.b0:
-            print(30 * ' ' + '       AIC       BIC       DIC')
+            print(30 * ' ' + '       AIC       BIC')
             CalcCriterions(args.b0, cML.mean, uML.mean, t, xx, True, 'Method of maximum likelihood  ')
             CalcCriterions(args.b0, cMom.mean, uMom.mean, t, xx, True, 'Method of moments             ')
         elif args.bknown == 'yes':
-            print(30 * ' ' + '       AIC       BIC       DIC')
+            print(30 * ' ' + '       AIC       BIC')
             CalcCriterions(args.b, cML.mean, uML.mean, t, xx, True, 'Method of maximum likelihood  ')
             CalcCriterions(args.b, cMom.mean, uMom.mean, t, xx, True, 'Method of moments             ')
         else:
-            print(40 * ' ' + '       AIC       BIC       DIC')
+            print(40 * ' ' + '       AIC       BIC')
             CalcCriterions(bML.mean, cML.mean, uML.mean, t, xx, False, 'Method of maximum likelihood            ')
             CalcCriterions(bExp.mean, cMLExp.mean, uMLExp.mean, t, xx, False, 'Method of maximum likelihood (b fitted) ')
             CalcCriterions(bExp.mean, cMomExp.mean, uMomExp.mean, t, xx, False, 'Method of moments (b fitted)            ')
