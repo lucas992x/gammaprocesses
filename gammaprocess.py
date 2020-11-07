@@ -6,9 +6,11 @@ from scipy.optimize import curve_fit, minimize, fsolve
 from scipy.special import gamma, digamma
 
 # Examples
-# python3 gammaprocess.py --file gaaslasers_data.txt --sep ',' --mode rows --numsamples 15 --critical 10 | tee gaaslasers_results.txt
-# python3 gammaprocess.py --file fatiguecrack_data.txt --sep ',' --mode rows --numsamples 10 --critical 0.4 | tee fatiguecrack_results.txt
+# python3 gammaprocess.py --file fatiguecrack_data.txt --sep ',' --mode rows --numsamples 10 --critical 0.4 | tee results.txt
+# python3 gammaprocess.py --file gaaslasers_data.txt --sep ',' --mode rows --numsamples 15 --critical 10 | tee results.txt
 # python3 gammaprocess.py --numsamples 500 --times '1,2,3,4,5,6,7,8,9,10' --b 1.4 --c 11 --u 6 --plots graphs --critical 30 --resolve yes | tee results.txt
+# python3 gammaprocess.py --numsamples 50 --times '0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9' --b 1.02 --c 22.49 --u 59.81 --numsamples 50 --plots graphs --graphmax 0.495 --critical 0.4
+# python3 gammaprocess.py --numsamples 50 --times '250,500,750,1000,1250,1500,1750,2000,2250,2500,2750,3000,3250,3500,3750,4000' --b 0.998 --c 0.030 --u 14.25 --plots graphs --graphmax 12.21 --critical 10
 
 # Notes and TODOs:
 # Raises warnings like "RuntimeWarning: invalid value encountered in double_scalars" or "RuntimeWarning: divide by zero encountered in power"
@@ -362,6 +364,8 @@ def GetFailurePdf(t, samples, critical, b = None, c = None, u = None, percentile
             failuretimes.append(failuretime)
     if failuretimes == []:
         print('No sample reached failure!')
+    elif len(failuretimes) == 1:
+        print('Only 1 sample reached failure, at time {:.3f}'.format(failuretimes[0]))
     else:
         failuretimes = Stats(failuretimes, percentile = percentile)
         # plot the graph
@@ -394,6 +398,22 @@ def GenSamplesAndPlot2(numsamples, t, b, cML, uML, cMom, uMom, limits, critical,
     samplesMom = GenerateSamples(numsamples, t, b, cMom, uMom)
     PrintPlotSamples(t, samplesMom, b, cMom, uMom, plots, method = 'parameters\nfrom method of moments', limits = limits, critical = critical)
 
+# Akaike information criterion and Bayesian information criterion
+def CalcCriterions(b, c, u, t, xx, bknown = False, method = ''):
+    loglike = 0  # loglikelihood
+    for x in xx:
+        delta = [x[j] - x[j - 1] for j in range(1, len(x))]
+        loglike += np.log(-IncrLikelihood([b, c, u], t, delta))
+    if bknown == True:
+        k = 2
+    else:
+        k = 3
+    aic = 2 * (k - loglike)
+    bic = k * np.log(len(xx)) - 2 * loglike
+    if method:
+        print('{}  {:8.3f}  {:8.3f}'.format(method, aic, bic))
+    return aic, bic
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # arguments needed to read a dataset and compute parameters
@@ -410,6 +430,7 @@ if __name__ == '__main__':
     parser.add_argument('--u', default = 0, type = float, help = '')
     parser.add_argument('--critical', default = 0, type = float, help = '')
     parser.add_argument('--plots', default = 'graphs', help = '"graphs" to plot graphs, "console" to print values, "both" to do both')
+    parser.add_argument('--graphmax', default = 0, type = float, help = 'upper limit for graphs (optional)')
     # arguments needed to re-compute parameters after generating samples
     parser.add_argument('--resolve', default = 'no', help = '"yes" to solve again after generating random samples')
     parser.add_argument('--bknown', default = 'no', help = '"yes" if b has to be treated as known')
@@ -440,13 +461,19 @@ if __name__ == '__main__':
             print('Input inspection times: ' + (args.sep + ' ').join([str(tt) for tt in t]))
             print('')
             samples = GenerateSamples(args.numsamples, t, args.b, args.c, args.u)
-            limits = [[0, max(t)], [0, max([max(s) for s in samples])]]
+            if args.graphmax:
+                limits = [[0, max(t)], [0, args.graphmax]]
+            else:
+                limits = [[0, max(t)], [0, max([max(s) for s in samples])]]
             PrintPlotSamples(t, samples, args.b, args.c, args.u, args.plots, method = 'arbitrary parameters', limits = limits, critical = args.critical)
         # inspection times read from dataset
         else:
             # plot graphs with same limits to have a better comparison
             if args.plots in ['graphs', 'both']:
-                limits = [[0, max(t)], [0, max([max(x) for x in xx])]]
+                if args.graphmax:
+                    limits = [[0, max(t)], [0, args.graphmax]]
+                else:
+                    limits = [[0, max(t)], [0, max([max(x) for x in xx])]]
             else:
                 limits = [[], []]
             # print original samples
@@ -470,3 +497,20 @@ if __name__ == '__main__':
         else:
             bExp, aExp, bML, cML, uML, cMLExp, uMLExp, cMomExp, uMomExp, cMomML, uMomML = SolveAll3 = SolveAll3(t, samples, bguesses, args.percentiles, True)
             GenSamplesAndPlot3(args.numsamples, t, bML.mean, cML.mean, uML.mean, bExp.mean, cMLExp.mean, uMLExp.mean, cMomExp.mean, uMomExp.mean, cMomML.mean, uMomML.mean, limits, args.critical, args.plots)
+    # compute AIC, BIC, DIC
+    if args.file or args.resolve == 'yes':
+        print('\n\n\nAkaike information citerion, Bayesian information criterion and Deviance information criterion:')
+        if args.b0:
+            print(30 * ' ' + '       AIC       BIC       DIC')
+            CalcCriterions(args.b0, cML.mean, uML.mean, t, xx, True, 'Method of maximum likelihood  ')
+            CalcCriterions(args.b0, cMom.mean, uMom.mean, t, xx, True, 'Method of moments             ')
+        elif args.bknown == 'yes':
+            print(30 * ' ' + '       AIC       BIC       DIC')
+            CalcCriterions(args.b, cML.mean, uML.mean, t, xx, True, 'Method of maximum likelihood  ')
+            CalcCriterions(args.b, cMom.mean, uMom.mean, t, xx, True, 'Method of moments             ')
+        else:
+            print(40 * ' ' + '       AIC       BIC       DIC')
+            CalcCriterions(bML.mean, cML.mean, uML.mean, t, xx, False, 'Method of maximum likelihood            ')
+            CalcCriterions(bExp.mean, cMLExp.mean, uMLExp.mean, t, xx, False, 'Method of maximum likelihood (b fitted) ')
+            CalcCriterions(bExp.mean, cMomExp.mean, uMomExp.mean, t, xx, False, 'Method of moments (b fitted)            ')
+            CalcCriterions(bML.mean, cMomML.mean, uMomML.mean, t, xx, False, 'Method of moments (b from ML)           ')
