@@ -390,7 +390,7 @@ def GenSamplesAndPlot3(numsamples, t, bML, cML, uML, bExp, cMLExp, uMLExp, cMomE
     samplesMomExp = GenerateSamples(numsamples, t, bExp, cMomExp, uMomExp)
     PrintPlotSamples(t, samplesMomExp, bExp, cMomExp, uMomExp, plots, method = 'parameters\nfrom method of moments (b fitted)', limits = limits, critical = critical)
     samplesMomML = GenerateSamples(numsamples, t, bML, cMomML, uMomML)
-    PrintPlotSamples(t, samplesMomML, bML, cMomML, uMomML, plots, method = 'parameters\nfrom method of method of moments (b from ML)', limits = limits, critical = critical)
+    PrintPlotSamples(t, samplesMomML, bML, cMomML, uMomML, plots, method = 'parameters\nfrom method of moments (b from ML)', limits = limits, critical = critical)
 
 def GenSamplesAndPlot2(numsamples, t, b, cML, uML, cMom, uMom, limits, critical, plots):
     samplesML = GenerateSamples(numsamples, t, b, cML, uML)
@@ -499,6 +499,8 @@ if __name__ == '__main__':
             GenSamplesAndPlot3(args.numsamples, t, bML.mean, cML.mean, uML.mean, bExp.mean, cMLExp.mean, uMLExp.mean, cMomExp.mean, uMomExp.mean, cMomML.mean, uMomML.mean, limits, args.critical, args.plots)
     # compute AIC and BIC
     if args.file or args.resolve == 'yes':
+        if args.resolve == 'yes':
+            xx = samples
         print('\n\n\nAkaike information citerion and Bayesian information criterion:')
         if args.b0:
             print(30 * ' ' + '       AIC       BIC')
