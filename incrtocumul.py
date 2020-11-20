@@ -3,7 +3,7 @@ from decimal import Decimal
 # decimal is used because it usually avoids "mistakes" made with float
 # for example, float can print something like 6.39999999998 instead of 6.4
 
-# example: python incrtocumul.py --infile fatiguecrack_incr.txt --mode rows --sep ',' --outfile fatiguecrack.txt
+# example: python3 incrtocumul.py --infile fatiguecrack_incr.txt --mode rows --sep ',' --outfile fatiguecrack.txt
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--infile', default = 'data.txt')  # input file

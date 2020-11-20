@@ -18,6 +18,7 @@ from scipy.special import gamma, digamma
 # Try to fix c and u estimations by computing variance
 # Change file names for graphs (maybe)
 # Plot of estimated pdf is "shrinked" in some cases
+# AIC/BIC is NaN in some cases
 
 # compute mean, variance, standard deviation and two percentiles of some data (default 2.5% and 97.5%)
 class Stats:
@@ -355,6 +356,7 @@ def GetFailureTime(t, x, critical):
         failtime = prev[0] + (next[0] - prev[0]) * (critical - prev[1]) / (next[1] - prev[1])
     return failtime
 
+# estimate pdf of failure time and plot it
 def GetFailurePdf(t, samples, critical, b = None, c = None, u = None, percentile = 2.5):
     # compute failure times
     failuretimes = []
@@ -362,10 +364,12 @@ def GetFailurePdf(t, samples, critical, b = None, c = None, u = None, percentile
         failuretime = GetFailureTime(t, sample, critical)
         if failuretime is not None:
             failuretimes.append(failuretime)
+    # if no sample reached failure there's no need to compute pdf
     if failuretimes == []:
         print('No sample reached failure!')
+    # same when only one sample reached failure
     elif len(failuretimes) == 1:
-        print('Only 1 sample reached failure, at time {:.3f}'.format(failuretimes[0]))
+        print('Only one sample reached failure, at time {:.3f}'.format(failuretimes[0]))
     else:
         failuretimes = Stats(failuretimes, percentile = percentile)
         # plot the graph
@@ -382,6 +386,7 @@ def GetFailurePdf(t, samples, critical, b = None, c = None, u = None, percentile
         # plot the two curves on the same graph
         PlotGraph(xgraph, [kde(xgraph), normpdf], title, [min(xgraph), max(xgraph)], [0, 1.05 * max([max(kde(xgraph)), max(normpdf)])], labels = ['', ''])
 
+# generate random samples when estimating b, c, u
 def GenSamplesAndPlot3(numsamples, t, bML, cML, uML, bExp, cMLExp, uMLExp, cMomExp, uMomExp, cMomML, uMomML, limits, critical, plots):
     samplesML = GenerateSamples(numsamples, t, bML, cML, uML)
     PrintPlotSamples(t, samplesML, bML, cML, uML, plots, method = 'parameters\nfrom method of maximum likelihood', limits = limits, critical = critical)
@@ -392,6 +397,7 @@ def GenSamplesAndPlot3(numsamples, t, bML, cML, uML, bExp, cMLExp, uMLExp, cMomE
     samplesMomML = GenerateSamples(numsamples, t, bML, cMomML, uMomML)
     PrintPlotSamples(t, samplesMomML, bML, cMomML, uMomML, plots, method = 'parameters\nfrom method of moments (b from ML)', limits = limits, critical = critical)
 
+# generate random samples when estimating onlu c and u
 def GenSamplesAndPlot2(numsamples, t, b, cML, uML, cMom, uMom, limits, critical, plots):
     samplesML = GenerateSamples(numsamples, t, b, cML, uML)
     PrintPlotSamples(t, samplesML, b, cML, uML, plots, method = 'parameters\nfrom method of maximum likelihood', limits = limits, critical = critical)
@@ -425,10 +431,10 @@ if __name__ == '__main__':
     # arguments needed to generate random samples
     parser.add_argument('--numsamples', default = 0, type = int, help = 'number of samples to generate')
     parser.add_argument('--times', default = '', help = 'if generating samples from custom parameters instead of computed parameters, pass them and the times, separated by "sep" argument; a critical value can also be passed')
-    parser.add_argument('--b', default = 0, type = float, help = '')
-    parser.add_argument('--c', default = 0, type = float, help = '')
-    parser.add_argument('--u', default = 0, type = float, help = '')
-    parser.add_argument('--critical', default = 0, type = float, help = '')
+    parser.add_argument('--b', default = 0, type = float, help = 'arbitrary value of b to generate random samples')
+    parser.add_argument('--c', default = 0, type = float, help = 'arbitrary value of c to generate random samples')
+    parser.add_argument('--u', default = 0, type = float, help = 'arbitrary value of u to generate random samples')
+    parser.add_argument('--critical', default = 0, type = float, help = 'critical value (optional)')
     parser.add_argument('--plots', default = 'graphs', help = '"graphs" to plot graphs, "console" to print values, "both" to do both')
     parser.add_argument('--graphmax', default = 0, type = float, help = 'upper limit for graphs (optional)')
     # arguments needed to re-compute parameters after generating samples
